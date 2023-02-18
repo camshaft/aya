@@ -628,6 +628,10 @@ fn parse_map(data: (String, MapData)) -> Result<(String, Map), BpfError> {
         BPF_MAP_TYPE_STACK => Ok(Map::Stack(map)),
         BPF_MAP_TYPE_STACK_TRACE => Ok(Map::StackTraceMap(map)),
         BPF_MAP_TYPE_QUEUE => Ok(Map::Queue(map)),
+        BPF_MAP_TYPE_CPUMAP => Ok(Map::CpuMap(map)),
+        BPF_MAP_TYPE_DEVMAP => Ok(Map::DevMap(map)),
+        BPF_MAP_TYPE_DEVMAP_HASH => Ok(Map::DevMapHash(map)),
+        BPF_MAP_TYPE_XSKMAP => Ok(Map::XskMap(map)),
         m => Err(BpfError::MapError(MapError::InvalidMapType {
             map_type: m as u32,
         })),

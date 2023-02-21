@@ -11,6 +11,7 @@ pub mod log;
 pub mod rbpf;
 pub mod relocations;
 pub mod smoke;
+pub mod xdp;
 
 pub use integration_test_macros::{integration_test, tokio_integration_test};
 

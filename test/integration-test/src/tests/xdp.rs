@@ -103,3 +103,20 @@ fn has_symbol(obj_file: &object::File, sec_name: &str, sym_name: &str) -> bool {
         .symbols()
         .any(|sym| sym.section() == sec && sym.name() == Ok(sym_name))
 }
+
+#[integration_test]
+fn map_load() {
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/xdp_sec");
+    let bpf = Bpf::load(bytes).unwrap();
+
+    bpf.program("xdp").unwrap();
+    bpf.program("named").unwrap();
+    bpf.program("xdp.frags").unwrap();
+    bpf.program("named_frags").unwrap();
+    bpf.program("cpumap").unwrap();
+    bpf.program("devmap").unwrap();
+    bpf.program("cpumap_named").unwrap();
+    bpf.program("devmap_named").unwrap();
+    bpf.program("frags_cm_named").unwrap();
+    bpf.program("frags_cm_named").unwrap();
+}

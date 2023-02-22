@@ -484,13 +484,18 @@ impl<'a> BpfLoader<'a> {
                                 data: ProgramData::new(prog_name, obj, btf_fd, verifier_log_level),
                             })
                         }
-                        ProgramSection::Xdp { frags, .. } => {
+                        ProgramSection::Xdp {
+                            frags, attach_type, ..
+                        } => {
                             let mut data =
                                 ProgramData::new(prog_name, obj, btf_fd, verifier_log_level);
                             if *frags {
                                 data.flags = BPF_F_XDP_HAS_FRAGS;
                             }
-                            Program::Xdp(Xdp { data })
+                            Program::Xdp(Xdp {
+                                data,
+                                attach_type: *attach_type,
+                            })
                         }
                         ProgramSection::SkMsg { .. } => Program::SkMsg(SkMsg {
                             data: ProgramData::new(prog_name, obj, btf_fd, verifier_log_level),

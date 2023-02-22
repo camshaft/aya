@@ -1,16 +1,14 @@
 //! eXpress Data Path (XDP) programs.
+use aya_obj::programs::XdpAttachType;
 use bitflags;
 use libc::if_nametoindex;
-use std::{convert::TryFrom, ffi::CString, hash::Hash, io, mem, os::unix::io::RawFd};
+use std::{convert::TryFrom, ffi::CString, hash::Hash, io, mem, os::unix::io::RawFd, path::Path};
 use thiserror::Error;
 
 use crate::{
     generated::{
-        bpf_attach_type::{self, BPF_XDP},
-        bpf_link_type,
-        bpf_prog_type::BPF_PROG_TYPE_XDP,
-        XDP_FLAGS_DRV_MODE, XDP_FLAGS_HW_MODE, XDP_FLAGS_REPLACE, XDP_FLAGS_SKB_MODE,
-        XDP_FLAGS_UPDATE_IF_NOEXIST,
+        bpf_link_type, bpf_prog_type::BPF_PROG_TYPE_XDP, XDP_FLAGS_DRV_MODE, XDP_FLAGS_HW_MODE,
+        XDP_FLAGS_REPLACE, XDP_FLAGS_SKB_MODE, XDP_FLAGS_UPDATE_IF_NOEXIST,
     },
     programs::{
         define_link_wrapper, load_program, FdLink, Link, LinkError, ProgramData, ProgramError,
@@ -75,12 +73,13 @@ bitflags! {
 #[doc(alias = "BPF_PROG_TYPE_XDP")]
 pub struct Xdp {
     pub(crate) data: ProgramData<XdpLink>,
+    pub(crate) attach_type: XdpAttachType,
 }
 
 impl Xdp {
     /// Loads the program inside the kernel.
     pub fn load(&mut self) -> Result<(), ProgramError> {
-        self.data.expected_attach_type = Some(bpf_attach_type::BPF_XDP);
+        self.data.expected_attach_type = Some(self.attach_type.into());
         load_program(BPF_PROG_TYPE_XDP, &mut self.data)
     }
 
@@ -128,12 +127,12 @@ impl Xdp {
 
         let k_ver = kernel_version().unwrap();
         if k_ver >= (5, 9, 0) {
-            let link_fd = bpf_link_create(prog_fd, if_index, BPF_XDP, None, flags.bits()).map_err(
-                |(_, io_error)| ProgramError::SyscallError {
+            let attach_type = self.data.expected_attach_type.unwrap();
+            let link_fd = bpf_link_create(prog_fd, if_index, attach_type, None, flags.bits())
+                .map_err(|(_, io_error)| ProgramError::SyscallError {
                     call: "bpf_link_create".to_owned(),
                     io_error,
-                },
-            )? as RawFd;
+                })? as RawFd;
             self.data
                 .links
                 .insert(XdpLink::new(XdpLinkInner::FdLink(FdLink::new(link_fd))))
@@ -149,6 +148,21 @@ impl Xdp {
                     flags,
                 })))
         }
+    }
+
+    /// Creates a program from a pinned entry on a bpffs.
+    ///
+    /// Existing links will not be populated. To work with existing links you should use [`crate::programs::links::PinnedLink`].
+    ///
+    /// On drop, any managed links are detached and the program is unloaded. This will not result in
+    /// the program being unloaded from the kernel if it is still pinned.
+    pub fn from_pin<P: AsRef<Path>>(
+        path: P,
+        attach_type: XdpAttachType,
+    ) -> Result<Self, ProgramError> {
+        let mut data = ProgramData::from_pinned_path(path)?;
+        data.expected_attach_type = Some(attach_type.into());
+        Ok(Self { data, attach_type })
     }
 
     /// Detaches the program.

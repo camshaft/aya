@@ -18,6 +18,7 @@ use crate::{
     btf::BtfFeatures,
     generated::{BPF_CALL, BPF_JMP, BPF_K},
     maps::{BtfMap, LegacyMap, Map, MINIMUM_MAP_SIZE},
+    programs::XdpAttachType,
     relocation::*,
     util::HashMap,
 };
@@ -172,8 +173,6 @@ pub struct Function {
 /// - `fmod_ret+`, `fmod_ret.s+`
 /// - `fentry.s+`, `fexit.s+`
 /// - `iter+`, `iter.s+`
-/// - `xdp.frags/cpumap`, `xdp/cpumap`
-/// - `xdp.frags/devmap`, `xdp/devmap`
 #[derive(Debug, Clone)]
 #[allow(missing_docs)]
 pub enum ProgramSection {
@@ -198,6 +197,7 @@ pub enum ProgramSection {
     Xdp {
         name: String,
         frags: bool,
+        attach_type: XdpAttachType,
     },
     SkMsg {
         name: String,
@@ -328,8 +328,36 @@ impl FromStr for ProgramSection {
             "kretprobe" => KRetProbe { name },
             "uprobe" => UProbe { name },
             "uretprobe" => URetProbe { name },
-            "xdp" => Xdp { name, frags: false },
-            "xdp.frags" => Xdp { name, frags: true },
+            "xdp" => Xdp {
+                name,
+                frags: false,
+                attach_type: XdpAttachType::Interface,
+            },
+            "xdp.frags" => Xdp {
+                name,
+                frags: true,
+                attach_type: XdpAttachType::Interface,
+            },
+            "xdp/cpumap" => Xdp {
+                name,
+                frags: false,
+                attach_type: XdpAttachType::CpuMap,
+            },
+            "xdp/devmap" => Xdp {
+                name,
+                frags: false,
+                attach_type: XdpAttachType::DevMap,
+            },
+            "xdp.frags/cpumap" => Xdp {
+                name,
+                frags: true,
+                attach_type: XdpAttachType::CpuMap,
+            },
+            "xdp.frags/devmap" => Xdp {
+                name,
+                frags: true,
+                attach_type: XdpAttachType::DevMap,
+            },
             "tp_btf" => BtfTracePoint { name },
             _ if kind.starts_with("tracepoint") || kind.starts_with("tp") => {
                 // tracepoint sections are named `tracepoint/category/event_name`,

@@ -6,6 +6,7 @@ use aya::{
     programs::{Xdp, XdpFlags},
     Bpf,
 };
+use object::{Object, ObjectSection, ObjectSymbol, SymbolSection};
 use xsk_rs::{
     config::{LibbpfFlags, SocketConfigBuilder},
     Socket, Umem,
@@ -56,4 +57,49 @@ fn af_xdp() {
     assert_eq!(&udp[0..2], port.to_be_bytes().as_slice()); // Source
     assert_eq!(&udp[2..4], 1777u16.to_be_bytes().as_slice()); // Dest
     assert_eq!(payload, b"hello AF_XDP");
+}
+
+#[integration_test]
+fn prog_sections() {
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/xdp_sec");
+    let obj_file = object::File::parse(bytes).unwrap();
+
+    assert!(has_symbol(&obj_file, "xdp", "xdp_plain"));
+    assert!(has_symbol(&obj_file, "xdp/named", "xdp_named"));
+    assert!(has_symbol(&obj_file, "xdp.frags", "xdp_frags"));
+    assert!(has_symbol(
+        &obj_file,
+        "xdp.frags/named_frags",
+        "xdp_named_frags"
+    ));
+    assert!(has_symbol(&obj_file, "xdp/cpumap", "xdp_cpumap"));
+    assert!(has_symbol(&obj_file, "xdp/devmap", "xdp_devmap"));
+    assert!(has_symbol(
+        &obj_file,
+        "xdp/cpumap/cpumap_named",
+        "xdp_cpumap_named"
+    ));
+    assert!(has_symbol(
+        &obj_file,
+        "xdp/devmap/devmap_named",
+        "xdp_devmap_named"
+    ));
+    assert!(has_symbol(
+        &obj_file,
+        "xdp.frags/cpumap/frags_cm_named",
+        "xdp_frags_cm_named"
+    ));
+    assert!(has_symbol(
+        &obj_file,
+        "xdp.frags/devmap/frags_dm_named",
+        "xdp_frags_dm_named"
+    ));
+}
+
+fn has_symbol(obj_file: &object::File, sec_name: &str, sym_name: &str) -> bool {
+    let sec = obj_file.section_by_name(sec_name).expect(sec_name);
+    let sec = SymbolSection::Section(sec.index());
+    obj_file
+        .symbols()
+        .any(|sym| sym.section() == sec && sym.name() == Ok(sym_name))
 }

@@ -201,6 +201,13 @@ pub struct Xdp {
     item: ItemFn,
     name: Option<String>,
     frags: bool,
+    map: Option<XdpMap>,
+}
+
+#[derive(Clone, Copy)]
+pub enum XdpMap {
+    CpuMap,
+    DevMap,
 }
 
 impl Xdp {
@@ -217,17 +224,39 @@ impl Xdp {
                 ));
             }
         }
+        let map = match pop_arg(&mut args, "map").as_deref() {
+            Some("cpumap") => Some(XdpMap::CpuMap),
+            Some("devmap") => Some(XdpMap::DevMap),
+            Some(_) => {
+                return Err(Error::new_spanned(
+                    "map",
+                    "invalid value. should be 'cpumap' or 'devmap'",
+                ))
+            }
+            None => None,
+        };
+
         err_on_unknown_args(&args)?;
-        Ok(Xdp { item, name, frags })
+        Ok(Xdp {
+            item,
+            name,
+            frags,
+            map,
+        })
     }
 
     pub fn expand(&self) -> Result<TokenStream> {
-        let section_prefix = if self.frags { "xdp.frags" } else { "xdp" };
-        let section_name = if let Some(name) = &self.name {
-            format!("{section_prefix}/{name}")
-        } else {
-            section_prefix.to_string()
+        let mut section_name = vec![if self.frags { "xdp.frags" } else { "xdp" }];
+        match self.map {
+            Some(XdpMap::CpuMap) => section_name.push("cpumap"),
+            Some(XdpMap::DevMap) => section_name.push("devmap"),
+            None => (),
         };
+        if let Some(name) = self.name.as_deref() {
+            section_name.push(name)
+        }
+        let section_name = section_name.join("/");
+
         let fn_vis = &self.item.vis;
         let fn_name = &self.item.sig.ident;
         let item = &self.item;

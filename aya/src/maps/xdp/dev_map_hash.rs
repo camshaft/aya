@@ -1,9 +1,15 @@
 //! An hashmap of network devices.
 
+use std::os::fd::AsRawFd;
+
+use aya_obj::generated::{bpf_devmap_val, bpf_devmap_val__bindgen_ty_1};
+
 use crate::{
     maps::{check_kv_size, hash_map, IterableMap, MapData, MapError, MapIter, MapKeys},
     sys::bpf_map_lookup_elem,
 };
+
+use super::dev_map::DevMapValue;
 
 /// An hashmap of network devices.
 ///
@@ -22,7 +28,7 @@ use crate::{
 /// let mut devmap = DevMapHash::try_from(bpf.map_mut("IFACES").unwrap())?;
 /// let flags = 0;
 /// let ifindex = 32u32;
-/// devmap.insert(ifindex, ifindex, flags);
+/// devmap.insert(ifindex, ifindex, None::<i32>, flags);
 ///
 /// # Ok::<(), aya::BpfError>(())
 /// ```
@@ -34,7 +40,7 @@ pub struct DevMapHash<T> {
 impl<T: AsRef<MapData>> DevMapHash<T> {
     pub(crate) fn new(map: T) -> Result<DevMapHash<T>, MapError> {
         let data = map.as_ref();
-        check_kv_size::<u32, u32>(data)?;
+        check_kv_size::<u32, bpf_devmap_val>(data)?;
 
         let _fd = data.fd_or_err()?;
 
@@ -47,7 +53,7 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
     ///
     /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
     /// if `bpf_map_lookup_elem` fails.
-    pub fn get(&self, index: u32, flags: u64) -> Result<u32, MapError> {
+    pub fn get(&self, index: u32, flags: u64) -> Result<DevMapValue, MapError> {
         let fd = self.inner.as_ref().fd_or_err()?;
         let value = bpf_map_lookup_elem(fd, &index, flags).map_err(|(_, io_error)| {
             MapError::SyscallError {
@@ -55,12 +61,13 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
                 io_error,
             }
         })?;
-        value.ok_or(MapError::KeyNotFound)
+        let value: bpf_devmap_val = value.ok_or(MapError::KeyNotFound)?;
+        Ok(value.into())
     }
 
     /// An iterator over the elements of the devmap in arbitrary order. The iterator item type is
     /// `Result<(u32, u32), MapError>`.
-    pub fn iter(&self) -> MapIter<'_, u32, u32, Self> {
+    pub fn iter(&self) -> MapIter<'_, u32, DevMapValue, Self> {
         MapIter::new(self)
     }
 
@@ -77,7 +84,19 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
     /// # Errors
     ///
     /// Returns [`MapError::SyscallError`] if `bpf_map_update_elem` fails.
-    pub fn insert(&mut self, index: u32, value: u32, flags: u64) -> Result<(), MapError> {
+    pub fn insert(
+        &mut self,
+        index: u32,
+        value: u32,
+        program: Option<impl AsRawFd>,
+        flags: u64,
+    ) -> Result<(), MapError> {
+        let value = bpf_devmap_val {
+            ifindex: value,
+            bpf_prog: bpf_devmap_val__bindgen_ty_1 {
+                fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
+            },
+        };
         hash_map::insert(self.inner.as_mut(), &index, &value, flags)
     }
 
@@ -91,12 +110,12 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
     }
 }
 
-impl<T: AsRef<MapData>> IterableMap<u32, u32> for DevMapHash<T> {
+impl<T: AsRef<MapData>> IterableMap<u32, DevMapValue> for DevMapHash<T> {
     fn map(&self) -> &MapData {
         self.inner.as_ref()
     }
 
-    fn get(&self, key: &u32) -> Result<u32, MapError> {
+    fn get(&self, key: &u32) -> Result<DevMapValue, MapError> {
         self.get(*key, 0)
     }
 }

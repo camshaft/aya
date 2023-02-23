@@ -1,8 +1,8 @@
-use std::{net::UdpSocket, os::fd::AsRawFd};
+use std::{net::UdpSocket, os::fd::AsRawFd, time::Duration};
 
 use aya::{
     include_bytes_aligned,
-    maps::XskMap,
+    maps::{Array, CpuMap, XskMap},
     programs::{Xdp, XdpFlags},
     Bpf,
 };
@@ -119,4 +119,45 @@ fn map_load() {
     bpf.program("devmap_named").unwrap();
     bpf.program("frags_cm_named").unwrap();
     bpf.program("frags_cm_named").unwrap();
+}
+
+#[integration_test]
+fn cpumap_chain() {
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/redirect");
+    let mut bpf = Bpf::load(bytes).unwrap();
+
+    // Load our cpumap and our canary map
+    let mut socks: CpuMap<_> = bpf.take_map("CPUS").unwrap().try_into().unwrap();
+    let hits: Array<_, u32> = bpf.take_map("HITS").unwrap().try_into().unwrap();
+
+    let xdp_chain_fd = {
+        // Load the chained program to run on the target CPU
+        let xdp: &mut Xdp = bpf
+            .program_mut("redirect_cpu_chain")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        xdp.load().unwrap();
+        xdp.fd().unwrap()
+    };
+    socks.set(0, 2048, Some(xdp_chain_fd), 0).unwrap();
+
+    // Load the main program
+    let xdp: &mut Xdp = bpf.program_mut("redirect_cpu").unwrap().try_into().unwrap();
+    xdp.load().unwrap();
+    xdp.attach("lo", XdpFlags::default()).unwrap();
+
+    let sock = UdpSocket::bind("127.0.0.1:1777").unwrap();
+    sock.set_read_timeout(Some(Duration::from_millis(1)))
+        .unwrap();
+    sock.send_to(b"hello cpumap", "127.0.0.1:1777").unwrap();
+
+    // Read back the packet to ensure it wenth through the entire network stack, including our two
+    // probes.
+    let mut buf = vec![0u8; 1000];
+    let n = sock.recv(&mut buf).unwrap();
+
+    assert_eq!(&buf[..n], b"hello cpumap");
+    assert_eq!(hits.get(&0, 0).unwrap(), 1);
+    assert_eq!(hits.get(&1, 0).unwrap(), 1);
 }

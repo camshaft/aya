@@ -46,16 +46,16 @@ impl DevMapHash {
     }
 
     #[inline(always)]
-    pub unsafe fn get(&self, index: u32) -> Option<&bpf_devmap_val> {
-        let value = bpf_map_lookup_elem(
-            self.def.get() as *mut _,
-            &index as *const _ as *const c_void,
-        );
-        NonNull::new(value as *mut bpf_devmap_val).map(|p| p.as_ref())
+    pub fn get(&self, key: u32) -> Option<bpf_devmap_val> {
+        unsafe {
+            let value =
+                bpf_map_lookup_elem(self.def.get() as *mut _, &key as *const _ as *const c_void);
+            NonNull::new(value as *mut bpf_devmap_val).map(|p| *p.as_ref())
+        }
     }
 
     #[inline(always)]
-    pub fn redirect(&self, index: u32, flags: u64) -> u32 {
-        unsafe { bpf_redirect_map(self.def.get() as *mut _, index as u64, flags) as u32 }
+    pub fn redirect(&self, key: u32, flags: u64) -> u32 {
+        unsafe { bpf_redirect_map(self.def.get() as *mut _, key as u64, flags) as u32 }
     }
 }

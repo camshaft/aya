@@ -14,7 +14,7 @@ use xsk_rs::{
 
 use super::{integration_test, IntegrationTest};
 
-#[integration_test]
+#[integration_test(netns)]
 fn af_xdp() {
     let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/redirect");
     let mut bpf = Bpf::load(bytes).unwrap();
@@ -121,7 +121,7 @@ fn map_load() {
     bpf.program("frags_cm_named").unwrap();
 }
 
-#[integration_test]
+#[integration_test(netns)]
 fn cpumap_chain() {
     let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/redirect");
     let mut bpf = Bpf::load(bytes).unwrap();

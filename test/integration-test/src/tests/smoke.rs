@@ -7,7 +7,7 @@ use log::info;
 
 use super::{integration_test, kernel_version};
 
-#[integration_test]
+#[integration_test(netns)]
 fn xdp() {
     let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/release/pass");
     let mut bpf = Bpf::load(bytes).unwrap();
@@ -16,7 +16,7 @@ fn xdp() {
     dispatcher.attach("lo", XdpFlags::default()).unwrap();
 }
 
-#[integration_test]
+#[integration_test(netns)]
 fn extension() {
     let (major, minor, _) = kernel_version().unwrap();
     if major < 5 || (minor == 5 && minor < 9) {

@@ -1,6 +1,7 @@
 use libtest_mimic::{Arguments, Trial};
 
 mod tests;
+mod utils;
 use tests::IntegrationTest;
 
 fn main() {

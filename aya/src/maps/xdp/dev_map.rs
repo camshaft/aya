@@ -6,6 +6,7 @@ use aya_obj::generated::{bpf_devmap_val, bpf_devmap_val__bindgen_ty_1};
 
 use crate::{
     maps::{check_bounds, check_kv_size, IterableMap, MapData, MapError},
+    programs::ProgramFd,
     sys::{bpf_map_lookup_elem, bpf_map_update_elem},
     Pod,
 };
@@ -27,7 +28,7 @@ use crate::{
 /// let mut devmap = DevMap::try_from(bpf.map_mut("IFACES").unwrap())?;
 /// let source = 32u32;
 /// let dest = 42u32;
-/// devmap.set(source, dest, None::<i32>, 0);
+/// devmap.set(source, dest, None, 0);
 ///
 /// # Ok::<(), aya::BpfError>(())
 /// ```
@@ -108,7 +109,7 @@ impl<T: AsMut<MapData>> DevMap<T> {
         &mut self,
         index: u32,
         ifindex: u32,
-        program: Option<impl AsRawFd>,
+        program: Option<ProgramFd>,
         flags: u64,
     ) -> Result<(), MapError> {
         let data = self.inner.as_mut();

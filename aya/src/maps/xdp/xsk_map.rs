@@ -51,17 +51,21 @@ impl<T: AsRef<MapData>> XskMap<T> {
 }
 
 impl<T: AsMut<MapData>> XskMap<T> {
-    /// Sets the value of the element at the given index.
+    /// Sets the `AF_XDP` socket at a given index.
+    ///
+    /// When redirecting a packet, the `AF_XDP` socket at `index` will recieve the packet. Note
+    /// that it will do so only if the socket is bound to the same queue the packet was recieved
+    /// on.
     ///
     /// # Errors
     ///
     /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
     /// if `bpf_map_update_elem` fails.
-    pub fn set<V: AsRawFd>(&mut self, index: u32, value: V, flags: u64) -> Result<(), MapError> {
+    pub fn set(&mut self, index: u32, socket_fd: impl AsRawFd, flags: u64) -> Result<(), MapError> {
         let data = self.inner.as_mut();
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
-        bpf_map_update_elem(fd, Some(&index), &value.as_raw_fd(), flags).map_err(
+        bpf_map_update_elem(fd, Some(&index), &socket_fd.as_raw_fd(), flags).map_err(
             |(_, io_error)| MapError::SyscallError {
                 call: "bpf_map_update_elem".to_owned(),
                 io_error,

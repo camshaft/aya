@@ -47,15 +47,14 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
         Ok(DevMapHash { inner: map })
     }
 
-    /// Returns the value stored at the given index.
+    /// Returns the target ifindex and possible program for a given key.
     ///
     /// # Errors
     ///
-    /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
-    /// if `bpf_map_lookup_elem` fails.
-    pub fn get(&self, index: u32, flags: u64) -> Result<DevMapValue, MapError> {
+    /// Returns [`MapError::SyscallError`] if `bpf_map_lookup_elem` fails.
+    pub fn get(&self, key: u32, flags: u64) -> Result<DevMapValue, MapError> {
         let fd = self.inner.as_ref().fd_or_err()?;
-        let value = bpf_map_lookup_elem(fd, &index, flags).map_err(|(_, io_error)| {
+        let value = bpf_map_lookup_elem(fd, &key, flags).map_err(|(_, io_error)| {
             MapError::SyscallError {
                 call: "bpf_map_lookup_elem".to_owned(),
                 io_error,
@@ -66,7 +65,7 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
     }
 
     /// An iterator over the elements of the devmap in arbitrary order. The iterator item type is
-    /// `Result<(u32, u32), MapError>`.
+    /// `Result<(u32, DevMapValue), MapError>`.
     pub fn iter(&self) -> MapIter<'_, u32, DevMapValue, Self> {
         MapIter::new(self)
     }
@@ -79,34 +78,43 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
 }
 
 impl<T: AsMut<MapData>> DevMapHash<T> {
-    /// Inserts a value in the map.
+    /// Inserts an ifindex and optionally a chained program in the map.
+    ///
+    /// When redirecting using `key`, packets will be transmitted by the interface with `ifindex`.
+    ///
+    /// Another XDP program can be passed in that will be run before actual transmission. It can be
+    /// used to modify the packet before transmission with NIC specific data (MAC address update,
+    /// checksum computations, etc) or other purposes.
+    ///
+    /// Note that only XDP programs with the `map = "devmap"` argument can be passed. See the
+    /// kernel-space `aya_bpf::xdp` for more information.
     ///
     /// # Errors
     ///
     /// Returns [`MapError::SyscallError`] if `bpf_map_update_elem` fails.
     pub fn insert(
         &mut self,
-        index: u32,
-        value: u32,
+        key: u32,
+        ifindex: u32,
         program: Option<impl AsRawFd>,
         flags: u64,
     ) -> Result<(), MapError> {
         let value = bpf_devmap_val {
-            ifindex: value,
+            ifindex,
             bpf_prog: bpf_devmap_val__bindgen_ty_1 {
                 fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
             },
         };
-        hash_map::insert(self.inner.as_mut(), &index, &value, flags)
+        hash_map::insert(self.inner.as_mut(), &key, &value, flags)
     }
 
-    /// Remove a value from the map.
+    /// Removes a value from the map.
     ///
     /// # Errors
     ///
     /// Returns [`MapError::SyscallError`] if `bpf_map_delete_elem` fails.
-    pub fn remove(&mut self, index: u32) -> Result<(), MapError> {
-        hash_map::remove(self.inner.as_mut(), &index)
+    pub fn remove(&mut self, key: u32) -> Result<(), MapError> {
+        hash_map::remove(self.inner.as_mut(), &key)
     }
 }
 

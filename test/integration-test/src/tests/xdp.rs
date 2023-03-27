@@ -127,7 +127,7 @@ fn cpumap_chain() {
     let mut bpf = Bpf::load(bytes).unwrap();
 
     // Load our cpumap and our canary map
-    let mut socks: CpuMap<_> = bpf.take_map("CPUS").unwrap().try_into().unwrap();
+    let mut cpus: CpuMap<_> = bpf.take_map("CPUS").unwrap().try_into().unwrap();
     let hits: Array<_, u32> = bpf.take_map("HITS").unwrap().try_into().unwrap();
 
     let xdp_chain_fd = {
@@ -140,7 +140,7 @@ fn cpumap_chain() {
         xdp.load().unwrap();
         xdp.fd().unwrap()
     };
-    socks.set(0, 2048, Some(xdp_chain_fd), 0).unwrap();
+    cpus.set(0, 2048, Some(xdp_chain_fd), 0).unwrap();
 
     // Load the main program
     let xdp: &mut Xdp = bpf.program_mut("redirect_cpu").unwrap().try_into().unwrap();

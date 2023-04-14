@@ -12,11 +12,11 @@ use xsk_rs::{
     Socket, Umem,
 };
 
-use super::{integration_test, IntegrationTest};
+use super::integration_test;
 
 #[integration_test(netns)]
 fn af_xdp() {
-    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/redirect");
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/release/redirect");
     let mut bpf = Bpf::load(bytes).unwrap();
     let mut socks: XskMap<_> = bpf.take_map("SOCKS").unwrap().try_into().unwrap();
 
@@ -61,7 +61,7 @@ fn af_xdp() {
 
 #[integration_test]
 fn prog_sections() {
-    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/xdp_sec");
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/release/xdp_sec");
     let obj_file = object::File::parse(bytes).unwrap();
 
     assert!(has_symbol(&obj_file, "xdp", "xdp_plain"));
@@ -106,7 +106,7 @@ fn has_symbol(obj_file: &object::File, sec_name: &str, sym_name: &str) -> bool {
 
 #[integration_test]
 fn map_load() {
-    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/xdp_sec");
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/release/xdp_sec");
     let bpf = Bpf::load(bytes).unwrap();
 
     bpf.program("xdp").unwrap();
@@ -123,7 +123,7 @@ fn map_load() {
 
 #[integration_test(netns)]
 fn cpumap_chain() {
-    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/debug/redirect");
+    let bytes = include_bytes_aligned!("../../../../target/bpfel-unknown-none/release/redirect");
     let mut bpf = Bpf::load(bytes).unwrap();
 
     // Load our cpumap and our canary map

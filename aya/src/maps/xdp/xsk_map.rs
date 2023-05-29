@@ -1,6 +1,9 @@
 //! An array of AF_XDP sockets.
 
-use std::os::unix::prelude::{AsRawFd, RawFd};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    os::fd::{AsRawFd, RawFd},
+};
 
 use crate::{
     maps::{check_bounds, check_kv_size, MapData, MapError},
@@ -32,9 +35,9 @@ pub struct XskMap<T> {
     inner: T,
 }
 
-impl<T: AsRef<MapData>> XskMap<T> {
+impl<T: Borrow<MapData>> XskMap<T> {
     pub(crate) fn new(map: T) -> Result<XskMap<T>, MapError> {
-        let data = map.as_ref();
+        let data = map.borrow();
         check_kv_size::<u32, RawFd>(data)?;
 
         let _fd = data.fd_or_err()?;
@@ -46,11 +49,11 @@ impl<T: AsRef<MapData>> XskMap<T> {
     ///
     /// This corresponds to the value of `bpf_map_def::max_entries` on the eBPF side.
     pub fn len(&self) -> u32 {
-        self.inner.as_ref().obj.max_entries()
+        self.inner.borrow().obj.max_entries()
     }
 }
 
-impl<T: AsMut<MapData>> XskMap<T> {
+impl<T: BorrowMut<MapData>> XskMap<T> {
     /// Sets the `AF_XDP` socket at a given index.
     ///
     /// When redirecting a packet, the `AF_XDP` socket at `index` will recieve the packet. Note
@@ -62,7 +65,7 @@ impl<T: AsMut<MapData>> XskMap<T> {
     /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
     /// if `bpf_map_update_elem` fails.
     pub fn set(&mut self, index: u32, socket_fd: impl AsRawFd, flags: u64) -> Result<(), MapError> {
-        let data = self.inner.as_mut();
+        let data = self.inner.borrow_mut();
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
         bpf_map_update_elem(fd, Some(&index), &socket_fd.as_raw_fd(), flags).map_err(

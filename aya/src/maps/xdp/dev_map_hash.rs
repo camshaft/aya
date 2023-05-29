@@ -1,6 +1,9 @@
 //! An hashmap of network devices.
 
-use std::os::fd::AsRawFd;
+use std::{
+    borrow::{Borrow, BorrowMut},
+    os::fd::AsRawFd,
+};
 
 use aya_obj::generated::{bpf_devmap_val, bpf_devmap_val__bindgen_ty_1};
 
@@ -39,9 +42,9 @@ pub struct DevMapHash<T> {
     inner: T,
 }
 
-impl<T: AsRef<MapData>> DevMapHash<T> {
+impl<T: Borrow<MapData>> DevMapHash<T> {
     pub(crate) fn new(map: T) -> Result<DevMapHash<T>, MapError> {
-        let data = map.as_ref();
+        let data = map.borrow();
 
         if FEATURES.devmap_hash_prog_id {
             check_kv_size::<u32, bpf_devmap_val>(data)?;
@@ -60,7 +63,7 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
     ///
     /// Returns [`MapError::SyscallError`] if `bpf_map_lookup_elem` fails.
     pub fn get(&self, key: u32, flags: u64) -> Result<DevMapValue, MapError> {
-        let fd = self.inner.as_ref().fd_or_err()?;
+        let fd = self.inner.borrow().fd_or_err()?;
 
         let value = if FEATURES.cpumap_prog_id {
             bpf_map_lookup_elem::<_, bpf_devmap_val>(fd, &key, flags).map(|value| {
@@ -96,11 +99,11 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
     /// An iterator visiting all keys in arbitrary order. The iterator item type is
     /// `Result<u32, MapError>`.
     pub fn keys(&self) -> MapKeys<'_, u32> {
-        MapKeys::new(self.inner.as_ref())
+        MapKeys::new(self.inner.borrow())
     }
 }
 
-impl<T: AsMut<MapData>> DevMapHash<T> {
+impl<T: BorrowMut<MapData>> DevMapHash<T> {
     /// Inserts an ifindex and optionally a chained program in the map.
     ///
     /// When redirecting using `key`, packets will be transmitted by the interface with `ifindex`.
@@ -131,12 +134,12 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
                     fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
                 },
             };
-            hash_map::insert(self.inner.as_mut(), &key, &value, flags)
+            hash_map::insert(self.inner.borrow_mut(), &key, &value, flags)
         } else {
             if program.is_some() {
                 return Err(MapError::ProgIdNotSupported);
             }
-            hash_map::insert(self.inner.as_mut(), &key, &ifindex, flags)
+            hash_map::insert(self.inner.borrow_mut(), &key, &ifindex, flags)
         }
     }
 
@@ -146,13 +149,13 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
     ///
     /// Returns [`MapError::SyscallError`] if `bpf_map_delete_elem` fails.
     pub fn remove(&mut self, key: u32) -> Result<(), MapError> {
-        hash_map::remove(self.inner.as_mut(), &key)
+        hash_map::remove(self.inner.borrow_mut(), &key)
     }
 }
 
-impl<T: AsRef<MapData>> IterableMap<u32, DevMapValue> for DevMapHash<T> {
+impl<T: Borrow<MapData>> IterableMap<u32, DevMapValue> for DevMapHash<T> {
     fn map(&self) -> &MapData {
-        self.inner.as_ref()
+        self.inner.borrow()
     }
 
     fn get(&self, key: &u32) -> Result<DevMapValue, MapError> {

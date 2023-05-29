@@ -1,6 +1,9 @@
 //! An array of network devices.
 
-use std::os::fd::AsRawFd;
+use std::{
+    borrow::{Borrow, BorrowMut},
+    os::fd::AsRawFd,
+};
 
 use aya_obj::generated::{bpf_devmap_val, bpf_devmap_val__bindgen_ty_1};
 
@@ -37,9 +40,9 @@ pub struct DevMap<T> {
     inner: T,
 }
 
-impl<T: AsRef<MapData>> DevMap<T> {
+impl<T: Borrow<MapData>> DevMap<T> {
     pub(crate) fn new(map: T) -> Result<DevMap<T>, MapError> {
-        let data = map.as_ref();
+        let data = map.borrow();
 
         if FEATURES.devmap_prog_id {
             check_kv_size::<u32, bpf_devmap_val>(data)?;
@@ -56,7 +59,7 @@ impl<T: AsRef<MapData>> DevMap<T> {
     ///
     /// This corresponds to the value of `bpf_map_def::max_entries` on the eBPF side.
     pub fn len(&self) -> u32 {
-        self.inner.as_ref().obj.max_entries()
+        self.inner.borrow().obj.max_entries()
     }
 
     /// Returns the target ifindex and possible program at a given index.
@@ -66,7 +69,7 @@ impl<T: AsRef<MapData>> DevMap<T> {
     /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
     /// if `bpf_map_lookup_elem` fails.
     pub fn get(&self, index: u32, flags: u64) -> Result<DevMapValue, MapError> {
-        let data = self.inner.as_ref();
+        let data = self.inner.borrow();
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
 
@@ -102,7 +105,7 @@ impl<T: AsRef<MapData>> DevMap<T> {
     }
 }
 
-impl<T: AsMut<MapData>> DevMap<T> {
+impl<T: BorrowMut<MapData>> DevMap<T> {
     /// Sets the target ifindex at index, and optionally a chained program.
     ///
     /// When redirecting using `index`, packets will be transmitted by the interface with
@@ -127,7 +130,7 @@ impl<T: AsMut<MapData>> DevMap<T> {
         program: Option<ProgramFd>,
         flags: u64,
     ) -> Result<(), MapError> {
-        let data = self.inner.as_mut();
+        let data = self.inner.borrow_mut();
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
 
@@ -154,9 +157,9 @@ impl<T: AsMut<MapData>> DevMap<T> {
     }
 }
 
-impl<T: AsRef<MapData>> IterableMap<u32, DevMapValue> for DevMap<T> {
+impl<T: Borrow<MapData>> IterableMap<u32, DevMapValue> for DevMap<T> {
     fn map(&self) -> &MapData {
-        self.inner.as_ref()
+        self.inner.borrow()
     }
 
     fn get(&self, key: &u32) -> Result<DevMapValue, MapError> {

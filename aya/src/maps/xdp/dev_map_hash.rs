@@ -8,6 +8,7 @@ use crate::{
     maps::{check_kv_size, hash_map, IterableMap, MapData, MapError, MapIter, MapKeys},
     programs::ProgramFd,
     sys::bpf_map_lookup_elem,
+    FEATURES,
 };
 
 use super::dev_map::DevMapValue;
@@ -41,7 +42,12 @@ pub struct DevMapHash<T> {
 impl<T: AsRef<MapData>> DevMapHash<T> {
     pub(crate) fn new(map: T) -> Result<DevMapHash<T>, MapError> {
         let data = map.as_ref();
-        check_kv_size::<u32, bpf_devmap_val>(data)?;
+
+        if FEATURES.devmap_hash_prog_id {
+            check_kv_size::<u32, bpf_devmap_val>(data)?;
+        } else {
+            check_kv_size::<u32, u32>(data)?;
+        }
 
         let _fd = data.fd_or_err()?;
 
@@ -55,20 +61,30 @@ impl<T: AsRef<MapData>> DevMapHash<T> {
     /// Returns [`MapError::SyscallError`] if `bpf_map_lookup_elem` fails.
     pub fn get(&self, key: u32, flags: u64) -> Result<DevMapValue, MapError> {
         let fd = self.inner.as_ref().fd_or_err()?;
-        let value = bpf_map_lookup_elem(fd, &key, flags).map_err(|(_, io_error)| {
-            MapError::SyscallError {
+
+        let value = if FEATURES.cpumap_prog_id {
+            bpf_map_lookup_elem::<_, bpf_devmap_val>(fd, &key, flags).map(|value| {
+                value.map(|value| DevMapValue {
+                    ifindex: value.ifindex,
+                    // SAFETY: map writes use fd, map reads use id.
+                    // https://elixir.bootlin.com/linux/v6.2/source/include/uapi/linux/bpf.h#L6149
+                    prog_id: unsafe { value.bpf_prog.id },
+                })
+            })
+        } else {
+            bpf_map_lookup_elem::<_, u32>(fd, &key, flags).map(|value| {
+                value.map(|ifindex| DevMapValue {
+                    ifindex,
+                    prog_id: 0,
+                })
+            })
+        };
+        value
+            .map_err(|(_, io_error)| MapError::SyscallError {
                 call: "bpf_map_lookup_elem".to_owned(),
                 io_error,
-            }
-        })?;
-        let value: bpf_devmap_val = value.ok_or(MapError::KeyNotFound)?;
-
-        // SAFETY: map writes use fd, map reads use id.
-        // https://elixir.bootlin.com/linux/v6.2/source/include/uapi/linux/bpf.h#L6136
-        Ok(DevMapValue {
-            ifindex: value.ifindex,
-            prog_id: unsafe { value.bpf_prog.id },
-        })
+            })?
+            .ok_or(MapError::KeyNotFound)
     }
 
     /// An iterator over the elements of the devmap in arbitrary order. The iterator item type is
@@ -98,7 +114,9 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`MapError::SyscallError`] if `bpf_map_update_elem` fails.
+    /// Returns [`MapError::SyscallError`] if `bpf_map_update_elem` fails,
+    /// [`MapError::ProgIdNotSupported`] if the kernel does not support program ids and one is
+    /// provided.
     pub fn insert(
         &mut self,
         key: u32,
@@ -106,13 +124,20 @@ impl<T: AsMut<MapData>> DevMapHash<T> {
         program: Option<ProgramFd>,
         flags: u64,
     ) -> Result<(), MapError> {
-        let value = bpf_devmap_val {
-            ifindex,
-            bpf_prog: bpf_devmap_val__bindgen_ty_1 {
-                fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
-            },
-        };
-        hash_map::insert(self.inner.as_mut(), &key, &value, flags)
+        if FEATURES.devmap_hash_prog_id {
+            let value = bpf_devmap_val {
+                ifindex,
+                bpf_prog: bpf_devmap_val__bindgen_ty_1 {
+                    fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
+                },
+            };
+            hash_map::insert(self.inner.as_mut(), &key, &value, flags)
+        } else {
+            if program.is_some() {
+                return Err(MapError::ProgIdNotSupported);
+            }
+            hash_map::insert(self.inner.as_mut(), &key, &ifindex, flags)
+        }
     }
 
     /// Removes a value from the map.

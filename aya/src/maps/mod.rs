@@ -184,6 +184,10 @@ pub enum MapError {
         #[source]
         error: PinError,
     },
+
+    /// Program IDs are not supported
+    #[error("program ids are not supported by your kernel")]
+    ProgIdNotSupported,
 }
 
 /// A map file descriptor.

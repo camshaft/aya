@@ -8,7 +8,7 @@ use crate::{
     maps::{check_bounds, check_kv_size, IterableMap, MapData, MapError},
     programs::ProgramFd,
     sys::{bpf_map_lookup_elem, bpf_map_update_elem},
-    Pod,
+    Pod, FEATURES,
 };
 
 /// An array of network devices.
@@ -40,7 +40,12 @@ pub struct DevMap<T> {
 impl<T: AsRef<MapData>> DevMap<T> {
     pub(crate) fn new(map: T) -> Result<DevMap<T>, MapError> {
         let data = map.as_ref();
-        check_kv_size::<u32, bpf_devmap_val>(data)?;
+
+        if FEATURES.devmap_prog_id {
+            check_kv_size::<u32, bpf_devmap_val>(data)?;
+        } else {
+            check_kv_size::<u32, u32>(data)?;
+        }
 
         let _fd = data.fd_or_err()?;
 
@@ -65,20 +70,29 @@ impl<T: AsRef<MapData>> DevMap<T> {
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
 
-        let value = bpf_map_lookup_elem(fd, &index, flags).map_err(|(_, io_error)| {
-            MapError::SyscallError {
+        let value = if FEATURES.cpumap_prog_id {
+            bpf_map_lookup_elem::<_, bpf_devmap_val>(fd, &index, flags).map(|value| {
+                value.map(|value| DevMapValue {
+                    ifindex: value.ifindex,
+                    // SAFETY: map writes use fd, map reads use id.
+                    // https://elixir.bootlin.com/linux/v6.2/source/include/uapi/linux/bpf.h#L6149
+                    prog_id: unsafe { value.bpf_prog.id },
+                })
+            })
+        } else {
+            bpf_map_lookup_elem::<_, u32>(fd, &index, flags).map(|value| {
+                value.map(|ifindex| DevMapValue {
+                    ifindex,
+                    prog_id: 0,
+                })
+            })
+        };
+        value
+            .map_err(|(_, io_error)| MapError::SyscallError {
                 call: "bpf_map_lookup_elem".to_owned(),
                 io_error,
-            }
-        })?;
-        let value: bpf_devmap_val = value.ok_or(MapError::KeyNotFound)?;
-
-        // SAFETY: map writes use fd, map reads use id.
-        // https://elixir.bootlin.com/linux/v6.2/source/include/uapi/linux/bpf.h#L6136
-        Ok(DevMapValue {
-            ifindex: value.ifindex,
-            prog_id: unsafe { value.bpf_prog.id },
-        })
+            })?
+            .ok_or(MapError::KeyNotFound)
     }
 
     /// An iterator over the elements of the array. The iterator item type is `Result<u32,
@@ -104,7 +118,8 @@ impl<T: AsMut<MapData>> DevMap<T> {
     /// # Errors
     ///
     /// Returns [`MapError::OutOfBounds`] if `index` is out of bounds, [`MapError::SyscallError`]
-    /// if `bpf_map_update_elem` fails.
+    /// if `bpf_map_update_elem` fails, [`MapError::ProgIdNotSupported`] if the kernel does not
+    /// support program ids and one is provided.
     pub fn set(
         &mut self,
         index: u32,
@@ -116,17 +131,24 @@ impl<T: AsMut<MapData>> DevMap<T> {
         check_bounds(data, index)?;
         let fd = data.fd_or_err()?;
 
-        let value = bpf_devmap_val {
-            ifindex,
-            bpf_prog: bpf_devmap_val__bindgen_ty_1 {
-                fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
-            },
-        };
-        bpf_map_update_elem(fd, Some(&index), &value, flags).map_err(|(_, io_error)| {
-            MapError::SyscallError {
-                call: "bpf_map_update_elem".to_owned(),
-                io_error,
+        let res = if FEATURES.devmap_prog_id {
+            let value = bpf_devmap_val {
+                ifindex,
+                bpf_prog: bpf_devmap_val__bindgen_ty_1 {
+                    fd: program.map(|prog| prog.as_raw_fd()).unwrap_or_default(),
+                },
+            };
+            bpf_map_update_elem(fd, Some(&index), &value, flags)
+        } else {
+            if program.is_some() {
+                return Err(MapError::ProgIdNotSupported);
             }
+            bpf_map_update_elem(fd, Some(&index), &ifindex, flags)
+        };
+
+        res.map_err(|(_, io_error)| MapError::SyscallError {
+            call: "bpf_map_update_elem".to_owned(),
+            io_error,
         })?;
         Ok(())
     }

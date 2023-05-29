@@ -37,7 +37,7 @@ use crate::{
         is_btf_datasec_supported, is_btf_decl_tag_supported, is_btf_float_supported,
         is_btf_func_global_supported, is_btf_func_supported, is_btf_supported,
         is_btf_type_tag_supported, is_perf_link_supported, is_probe_read_kernel_supported,
-        is_prog_name_supported, retry_with_verifier_logs,
+        is_prog_id_supported, is_prog_name_supported, retry_with_verifier_logs,
     },
     util::{bytes_of, bytes_of_slice, possible_cpus, VerifierLog, POSSIBLE_CPUS},
 };
@@ -88,6 +88,9 @@ fn detect_features() -> Features {
         bpf_probe_read_kernel: is_probe_read_kernel_supported(),
         bpf_perf_link: is_perf_link_supported(),
         bpf_global_data: is_bpf_global_data_supported(),
+        cpumap_prog_id: is_prog_id_supported(bpf_map_type::BPF_MAP_TYPE_CPUMAP),
+        devmap_prog_id: is_prog_id_supported(bpf_map_type::BPF_MAP_TYPE_DEVMAP),
+        devmap_hash_prog_id: is_prog_id_supported(bpf_map_type::BPF_MAP_TYPE_DEVMAP_HASH),
         btf,
     };
     debug!("BPF Feature Detection: {:#?}", f);
@@ -382,6 +385,18 @@ impl<'a> BpfLoader<'a> {
                         );
                     }
                 }
+            }
+            match obj.map_type().try_into() {
+                Ok(bpf_map_type::BPF_MAP_TYPE_CPUMAP) => {
+                    obj.set_value_size(if FEATURES.cpumap_prog_id { 8 } else { 4 })
+                }
+                Ok(bpf_map_type::BPF_MAP_TYPE_DEVMAP) => {
+                    obj.set_value_size(if FEATURES.devmap_prog_id { 8 } else { 4 })
+                }
+                Ok(bpf_map_type::BPF_MAP_TYPE_DEVMAP_HASH) => {
+                    obj.set_value_size(if FEATURES.devmap_hash_prog_id { 8 } else { 4 })
+                }
+                _ => (),
             }
             let mut map = MapData {
                 obj,

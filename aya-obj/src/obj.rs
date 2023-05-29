@@ -46,6 +46,9 @@ pub struct Features {
     pub bpf_probe_read_kernel: bool,
     pub bpf_perf_link: bool,
     pub bpf_global_data: bool,
+    pub cpumap_prog_id: bool,
+    pub devmap_prog_id: bool,
+    pub devmap_hash_prog_id: bool,
     pub btf: Option<BtfFeatures>,
 }
 
